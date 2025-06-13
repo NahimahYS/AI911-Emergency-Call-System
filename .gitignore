@@ -140,6 +140,23 @@ venv.bak/
 .spyderproject
 .spyproject
 
+
+
+
+# Data folders - don't upload test data
+audio_files/
+transcripts/
+analysis_results/
+analysis_results_backup/
+logs/
+
+# Keep .env secret
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+
 # Rope project settings
 .ropeproject
 
@@ -191,4 +208,4 @@ cython_debug/
 #  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
-.cursorindexingignore
+.cursorindexingignore.env 
