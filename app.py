@@ -231,346 +231,6 @@ def show_enhanced_location_section():
                     st.error("❌ Could not get location. Please ensure location services are enabled and try again.")
                     
             except Exception as e:
-            logger.error(f"Error in analysis: {e}")
-            st.error(f"Analysis failed: {e}")
-
-def show_analytics_dashboard():
-    """Analytics and insights dashboard"""
-    st.markdown("### 📊 Emergency Analytics Dashboard")
-    
-    # Load call data for analysis
-    calls = load_call_history()
-    
-    if not calls:
-        st.info("📈 No data available yet. Process some emergency calls to see analytics.")
-        return
-    
-    # Key metrics
-    total_calls = len(calls)
-    
-    # Safe calculation for today's calls
-    today_calls = 0
-    for c in calls:
-        try:
-            timestamp = c.get('timestamp', '')
-            if timestamp:
-                dt = datetime.datetime.fromisoformat(timestamp)
-                if dt.date() == datetime.date.today():
-                    today_calls += 1
-        except:
-            continue
-    
-    # Time-based analysis
-    st.markdown("#### 📅 Call Volume Analysis")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Total Calls", total_calls)
-    with col2:
-        st.metric("Today's Calls", today_calls)
-    with col3:
-        # Safe confidence calculation
-        confidences = []
-        for c in calls:
-            conf = c.get('confidence', 0)
-            if isinstance(conf, (int, float)):
-                confidences.append(conf)
-        avg_confidence = sum(confidences) / len(confidences) if confidences else 0
-        st.metric("Avg Confidence", f"{avg_confidence:.1%}")
-    with col4:
-        critical_calls = len([c for c in calls if c.get('severity') == 'Critical'])
-        st.metric("Critical Calls", critical_calls)
-    
-    # Distribution charts
-    col_chart1, col_chart2 = st.columns(2)
-    
-    with col_chart1:
-        st.markdown("##### Emergency Type Distribution")
-        type_counts = {}
-        for call in calls:
-            call_type = call.get('emergency_type', 'Unknown')
-            if isinstance(call_type, str):
-                type_counts[call_type] = type_counts.get(call_type, 0) + 1
-        
-        # Display as progress bars
-        for call_type, count in sorted(type_counts.items(), key=lambda x: x[1], reverse=True):
-            percentage = (count / total_calls) * 100 if total_calls > 0 else 0
-            type_colors = {"Medical": "#dc2626", "Fire": "#f59e0b", "Police": "#3b82f6", "Traffic": "#8b5cf6"}
-            color = type_colors.get(call_type, "#6b7280")
-            
-            st.markdown(f"""
-            <div style="margin: 10px 0;">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                    <span style="font-weight: 500; color: {color};">{call_type}</span>
-                    <span style="color: #6b7280; font-size: 14px;">{count} ({percentage:.1f}%)</span>
-                </div>
-                <div style="background: #e5e7eb; height: 8px; border-radius: 4px; overflow: hidden;">
-                    <div style="background: {color}; height: 100%; width: {percentage}%; transition: width 0.3s ease;"></div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    with col_chart2:
-        st.markdown("##### Severity Level Distribution")
-        severity_counts = {}
-        for call in calls:
-            severity = call.get('severity', 'Unknown')
-            if isinstance(severity, str):
-                severity_counts[severity] = severity_counts.get(severity, 0) + 1
-        
-        severity_order = ['Critical', 'High', 'Medium', 'Low']
-        severity_colors = {"Critical": "#dc2626", "High": "#f59e0b", "Medium": "#eab308", "Low": "#22c55e"}
-        
-        for severity in severity_order:
-            if severity in severity_counts:
-                count = severity_counts[severity]
-                percentage = (count / total_calls) * 100 if total_calls > 0 else 0
-                color = severity_colors[severity]
-                
-                st.markdown(f"""
-                <div style="margin: 10px 0;">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                        <span style="font-weight: 500; color: {color};">{severity}</span>
-                        <span style="color: #6b7280; font-size: 14px;">{count} ({percentage:.1f}%)</span>
-                    </div>
-                    <div style="background: #e5e7eb; height: 8px; border-radius: 4px; overflow: hidden;">
-                        <div style="background: {color}; height: 100%; width: {percentage}%; transition: width 0.3s ease;"></div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-    
-    # Performance metrics
-    st.markdown("#### ⚡ Performance Metrics")
-    
-    perf_col1, perf_col2, perf_col3 = st.columns(3)
-    
-    with perf_col1:
-        st.markdown("""
-        <div class="metric-card">
-            <h4 style="color: #6b7280; margin: 0 0 10px 0;">Classification Speed</h4>
-            <h2 style="color: #22c55e; margin: 10px 0;">< 2.0s</h2>
-            <div style="color: #16a34a; font-size: 12px;">✓ Target: < 5s</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with perf_col2:
-        # Safe confidence calculation
-        high_confidence_calls = 0
-        for c in calls:
-            conf = c.get('confidence', 0)
-            if isinstance(conf, (int, float)) and conf > 0.8:
-                high_confidence_calls += 1
-        
-        confidence_rate = (high_confidence_calls / total_calls * 100) if total_calls > 0 else 0
-        
-        st.markdown(f"""
-        <div class="metric-card">
-            <h4 style="color: #6b7280; margin: 0 0 10px 0;">High Confidence Rate</h4>
-            <h2 style="color: #3b82f6; margin: 10px 0;">{confidence_rate:.1f}%</h2>
-            <div style="color: #2563eb; font-size: 12px;">Target: > 85%</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with perf_col3:
-        # Safe location detection calculation
-        location_found = 0
-        for c in calls:
-            location = c.get('location', {})
-            if isinstance(location, dict) and location.get('address', 'Unknown') != 'Unknown':
-                location_found += 1
-        
-        location_rate = (location_found / total_calls * 100) if total_calls > 0 else 0
-        
-        st.markdown(f"""
-        <div class="metric-card">
-            <h4 style="color: #6b7280; margin: 0 0 10px 0;">Location Detection</h4>
-            <h2 style="color: #f59e0b; margin: 10px 0;">{location_rate:.1f}%</h2>
-            <div style="color: #d97706; font-size: 12px;">Target: > 75%</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-def show_system_status_tab():
-    """System status and configuration"""
-    st.markdown("### ⚙️ System Status & Configuration")
-    
-    # System health overview
-    col_status1, col_status2, col_status3 = st.columns(3)
-    
-    with col_status1:
-        st.markdown("""
-        <div class="metric-card">
-            <h4 style="color: #6b7280; margin: 0 0 10px 0;">System Health</h4>
-            <h2 style="color: #22c55e; margin: 10px 0;">🟢 OPERATIONAL</h2>
-            <div style="color: #16a34a; font-size: 12px;">All systems functioning normally</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col_status2:
-        uptime = "99.8%"
-        st.markdown(f"""
-        <div class="metric-card">
-            <h4 style="color: #6b7280; margin: 0 0 10px 0;">System Uptime</h4>
-            <h2 style="color: #3b82f6; margin: 10px 0;">{uptime}</h2>
-            <div style="color: #2563eb; font-size: 12px;">Last 30 days</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col_status3:
-        total_processed = st.session_state.call_counter
-        st.markdown(f"""
-        <div class="metric-card">
-            <h4 style="color: #6b7280; margin: 0 0 10px 0;">Calls Processed</h4>
-            <h2 style="color: #f59e0b; margin: 10px 0;">{total_processed}</h2>
-            <div style="color: #d97706; font-size: 12px;">This session</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Service status section
-    st.markdown("#### 🔧 Service Status")
-    
-    # Check service statuses
-    try:
-        import azure.cognitiveservices.speech
-        azure_sdk_available = True
-    except ImportError:
-        azure_sdk_available = False
-    
-    azure_configured = AZURE_SPEECH_KEY and AZURE_SPEECH_KEY != "YOUR_AZURE_KEY_HERE"
-    
-    if azure_configured and azure_sdk_available:
-        azure_status = ("🟢", "Connected", "Real-time transcription active")
-    elif azure_configured:
-        azure_status = ("🟡", "SDK Missing", "Install: pip install azure-cognitiveservices-speech")
-    else:
-        azure_status = ("🔴", "Not Configured", "Using simulated transcription")
-    
-    # Add AI status check
-    ai_status = ("🟢", "Active", "AI model loaded") if ai_classifier else ("🔴", "Not Loaded", "AI model not available")
-    
-    # Check geolocation status
-    if GEOLOCATION_AVAILABLE:
-        geo_status = ("🟢", "Available", "GPS location detection ready")
-    else:
-        geo_status = ("🟡", "Not Installed", "Install: pip install streamlit-geolocation")
-    
-    services = [
-        ("Azure Speech Services", azure_status),
-        ("Emergency Classifier", ("🟢", "Active", "Enhanced keyword matching operational")),
-        ("AI Classification", ai_status),
-        ("Data Storage", ("🟢", "Online", "Local file system storage")),
-        ("Location Extraction", ("🟢", "Active", "Pattern-based extraction")),
-        ("GPS Geolocation", geo_status),
-    ]
-    
-    # Display services in a grid
-    service_cols = st.columns(2)
-    
-    for i, (service_name, (indicator, status, description)) in enumerate(services):
-        with service_cols[i % 2]:
-            st.markdown(f"""
-            <div style="background: white; padding: 15px; border-radius: 8px; 
-                       margin: 10px 0; border: 1px solid #e5e7eb;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <h4 style="margin: 0; color: #374151;">{service_name}</h4>
-                        <p style="margin: 5px 0 0 0; color: #6b7280; font-size: 14px;">{description}</p>
-                    </div>
-                    <div style="text-align: right;">
-                        <div style="font-size: 20px;">{indicator}</div>
-                        <div style="font-size: 12px; color: #6b7280;">{status}</div>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    # Configuration info
-    st.markdown("#### ⚙️ Configuration Details")
-    
-    config_col1, config_col2 = st.columns(2)
-    
-    with config_col1:
-        st.markdown("##### 🎤 Audio Processing")
-        st.code(f"""
-Azure Region: {AZURE_SPEECH_REGION}
-Language: en-CA
-Max Audio: 10MB
-Formats: WAV, MP3, M4A, OGG
-        """, language="text")
-    
-    with config_col2:
-        st.markdown("##### 🧠 AI Model")
-        st.code(f"""
-Model: facebook/bart-large-mnli
-Type: Zero-shot classification
-Device: CPU
-Confidence Threshold: 70%
-        """, language="text")
-    
-    # System logs
-    st.markdown("#### 📊 System Activity")
-    
-    activity_data = {
-        "Time": ["14:32:15", "14:31:42", "14:30:58", "14:29:33", "14:28:15"],
-        "Event": [
-            "Emergency call processed - Medical",
-            "AI classification completed",
-            "Location detected via GPS",
-            "Audio transcription successful",
-            "System health check passed"
-        ],
-        "Status": ["✅", "✅", "✅", "✅", "✅"]
-    }
-    
-    st.dataframe(activity_data, use_container_width=True, hide_index=True)
-
-# ===================================
-# MAIN APPLICATION
-# ===================================
-
-def main():
-    """Main application"""
-    try:
-        load_custom_css()
-        
-        # Header
-        st.markdown("""
-        <div style="text-align: center; margin-bottom: 30px;">
-            <h1 style="color: #1f2937;">🚨 AI911 Emergency Call System</h1>
-            <p style="color: #6b7280; font-size: 18px;">Advanced Emergency Classification & Response Platform with AI</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Navigation
-        tabs = st.tabs([
-            "📞 Emergency Response", 
-            "📊 Analytics Dashboard",
-            "📁 Call History", 
-            "⚙️ System Status",
-            "📚 Help & Training"
-        ])
-        
-        with tabs[0]:
-            show_emergency_response_tab()
-        
-        with tabs[1]:
-            show_analytics_dashboard()
-        
-        with tabs[2]:
-            show_call_history_tab()
-        
-        with tabs[3]:
-            show_system_status_tab()
-        
-        with tabs[4]:
-            show_help_tab()
-            
-    except Exception as e:
-        logger.error(f"Application error: {e}")
-        st.error(f"Application error: {e}")
-
-if __name__ == "__main__":
-    main()
                 st.error(f"❌ Location detection failed: {str(e)}")
                 st.info("💡 Tip: Make sure you're using HTTPS (not HTTP) and have location services enabled")
     
@@ -1937,3 +1597,343 @@ def process_emergency_call(audio_data, manual_transcript: str, location: str):
             st.rerun()
             
         except Exception as e:
+            logger.error(f"Error in analysis: {e}")
+            st.error(f"Analysis failed: {e}")
+
+def show_analytics_dashboard():
+    """Analytics and insights dashboard"""
+    st.markdown("### 📊 Emergency Analytics Dashboard")
+    
+    # Load call data for analysis
+    calls = load_call_history()
+    
+    if not calls:
+        st.info("📈 No data available yet. Process some emergency calls to see analytics.")
+        return
+    
+    # Key metrics
+    total_calls = len(calls)
+    
+    # Safe calculation for today's calls
+    today_calls = 0
+    for c in calls:
+        try:
+            timestamp = c.get('timestamp', '')
+            if timestamp:
+                dt = datetime.datetime.fromisoformat(timestamp)
+                if dt.date() == datetime.date.today():
+                    today_calls += 1
+        except:
+            continue
+    
+    # Time-based analysis
+    st.markdown("#### 📅 Call Volume Analysis")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Calls", total_calls)
+    with col2:
+        st.metric("Today's Calls", today_calls)
+    with col3:
+        # Safe confidence calculation
+        confidences = []
+        for c in calls:
+            conf = c.get('confidence', 0)
+            if isinstance(conf, (int, float)):
+                confidences.append(conf)
+        avg_confidence = sum(confidences) / len(confidences) if confidences else 0
+        st.metric("Avg Confidence", f"{avg_confidence:.1%}")
+    with col4:
+        critical_calls = len([c for c in calls if c.get('severity') == 'Critical'])
+        st.metric("Critical Calls", critical_calls)
+    
+    # Distribution charts
+    col_chart1, col_chart2 = st.columns(2)
+    
+    with col_chart1:
+        st.markdown("##### Emergency Type Distribution")
+        type_counts = {}
+        for call in calls:
+            call_type = call.get('emergency_type', 'Unknown')
+            if isinstance(call_type, str):
+                type_counts[call_type] = type_counts.get(call_type, 0) + 1
+        
+        # Display as progress bars
+        for call_type, count in sorted(type_counts.items(), key=lambda x: x[1], reverse=True):
+            percentage = (count / total_calls) * 100 if total_calls > 0 else 0
+            type_colors = {"Medical": "#dc2626", "Fire": "#f59e0b", "Police": "#3b82f6", "Traffic": "#8b5cf6"}
+            color = type_colors.get(call_type, "#6b7280")
+            
+            st.markdown(f"""
+            <div style="margin: 10px 0;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                    <span style="font-weight: 500; color: {color};">{call_type}</span>
+                    <span style="color: #6b7280; font-size: 14px;">{count} ({percentage:.1f}%)</span>
+                </div>
+                <div style="background: #e5e7eb; height: 8px; border-radius: 4px; overflow: hidden;">
+                    <div style="background: {color}; height: 100%; width: {percentage}%; transition: width 0.3s ease;"></div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    with col_chart2:
+        st.markdown("##### Severity Level Distribution")
+        severity_counts = {}
+        for call in calls:
+            severity = call.get('severity', 'Unknown')
+            if isinstance(severity, str):
+                severity_counts[severity] = severity_counts.get(severity, 0) + 1
+        
+        severity_order = ['Critical', 'High', 'Medium', 'Low']
+        severity_colors = {"Critical": "#dc2626", "High": "#f59e0b", "Medium": "#eab308", "Low": "#22c55e"}
+        
+        for severity in severity_order:
+            if severity in severity_counts:
+                count = severity_counts[severity]
+                percentage = (count / total_calls) * 100 if total_calls > 0 else 0
+                color = severity_colors[severity]
+                
+                st.markdown(f"""
+                <div style="margin: 10px 0;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                        <span style="font-weight: 500; color: {color};">{severity}</span>
+                        <span style="color: #6b7280; font-size: 14px;">{count} ({percentage:.1f}%)</span>
+                    </div>
+                    <div style="background: #e5e7eb; height: 8px; border-radius: 4px; overflow: hidden;">
+                        <div style="background: {color}; height: 100%; width: {percentage}%; transition: width 0.3s ease;"></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+    
+    # Performance metrics
+    st.markdown("#### ⚡ Performance Metrics")
+    
+    perf_col1, perf_col2, perf_col3 = st.columns(3)
+    
+    with perf_col1:
+        st.markdown("""
+        <div class="metric-card">
+            <h4 style="color: #6b7280; margin: 0 0 10px 0;">Classification Speed</h4>
+            <h2 style="color: #22c55e; margin: 10px 0;">< 2.0s</h2>
+            <div style="color: #16a34a; font-size: 12px;">✓ Target: < 5s</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with perf_col2:
+        # Safe confidence calculation
+        high_confidence_calls = 0
+        for c in calls:
+            conf = c.get('confidence', 0)
+            if isinstance(conf, (int, float)) and conf > 0.8:
+                high_confidence_calls += 1
+        
+        confidence_rate = (high_confidence_calls / total_calls * 100) if total_calls > 0 else 0
+        
+        st.markdown(f"""
+        <div class="metric-card">
+            <h4 style="color: #6b7280; margin: 0 0 10px 0;">High Confidence Rate</h4>
+            <h2 style="color: #3b82f6; margin: 10px 0;">{confidence_rate:.1f}%</h2>
+            <div style="color: #2563eb; font-size: 12px;">Target: > 85%</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with perf_col3:
+        # Safe location detection calculation
+        location_found = 0
+        for c in calls:
+            location = c.get('location', {})
+            if isinstance(location, dict) and location.get('address', 'Unknown') != 'Unknown':
+                location_found += 1
+        
+        location_rate = (location_found / total_calls * 100) if total_calls > 0 else 0
+        
+        st.markdown(f"""
+        <div class="metric-card">
+            <h4 style="color: #6b7280; margin: 0 0 10px 0;">Location Detection</h4>
+            <h2 style="color: #f59e0b; margin: 10px 0;">{location_rate:.1f}%</h2>
+            <div style="color: #d97706; font-size: 12px;">Target: > 75%</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+def show_system_status_tab():
+    """System status and configuration"""
+    st.markdown("### ⚙️ System Status & Configuration")
+    
+    # System health overview
+    col_status1, col_status2, col_status3 = st.columns(3)
+    
+    with col_status1:
+        st.markdown("""
+        <div class="metric-card">
+            <h4 style="color: #6b7280; margin: 0 0 10px 0;">System Health</h4>
+            <h2 style="color: #22c55e; margin: 10px 0;">🟢 OPERATIONAL</h2>
+            <div style="color: #16a34a; font-size: 12px;">All systems functioning normally</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_status2:
+        uptime = "99.8%"
+        st.markdown(f"""
+        <div class="metric-card">
+            <h4 style="color: #6b7280; margin: 0 0 10px 0;">System Uptime</h4>
+            <h2 style="color: #3b82f6; margin: 10px 0;">{uptime}</h2>
+            <div style="color: #2563eb; font-size: 12px;">Last 30 days</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_status3:
+        total_processed = st.session_state.call_counter
+        st.markdown(f"""
+        <div class="metric-card">
+            <h4 style="color: #6b7280; margin: 0 0 10px 0;">Calls Processed</h4>
+            <h2 style="color: #f59e0b; margin: 10px 0;">{total_processed}</h2>
+            <div style="color: #d97706; font-size: 12px;">This session</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Service status section
+    st.markdown("#### 🔧 Service Status")
+    
+    # Check service statuses
+    try:
+        import azure.cognitiveservices.speech
+        azure_sdk_available = True
+    except ImportError:
+        azure_sdk_available = False
+    
+    azure_configured = AZURE_SPEECH_KEY and AZURE_SPEECH_KEY != "YOUR_AZURE_KEY_HERE"
+    
+    if azure_configured and azure_sdk_available:
+        azure_status = ("🟢", "Connected", "Real-time transcription active")
+    elif azure_configured:
+        azure_status = ("🟡", "SDK Missing", "Install: pip install azure-cognitiveservices-speech")
+    else:
+        azure_status = ("🔴", "Not Configured", "Using simulated transcription")
+    
+    # Add AI status check
+    ai_status = ("🟢", "Active", "AI model loaded") if ai_classifier else ("🔴", "Not Loaded", "AI model not available")
+    
+    # Check geolocation status
+    if GEOLOCATION_AVAILABLE:
+        geo_status = ("🟢", "Available", "GPS location detection ready")
+    else:
+        geo_status = ("🟡", "Not Installed", "Install: pip install streamlit-geolocation")
+    
+    services = [
+        ("Azure Speech Services", azure_status),
+        ("Emergency Classifier", ("🟢", "Active", "Enhanced keyword matching operational")),
+        ("AI Classification", ai_status),
+        ("Data Storage", ("🟢", "Online", "Local file system storage")),
+        ("Location Extraction", ("🟢", "Active", "Pattern-based extraction")),
+        ("GPS Geolocation", geo_status),
+    ]
+    
+    # Display services in a grid
+    service_cols = st.columns(2)
+    
+    for i, (service_name, (indicator, status, description)) in enumerate(services):
+        with service_cols[i % 2]:
+            st.markdown(f"""
+            <div style="background: white; padding: 15px; border-radius: 8px; 
+                       margin: 10px 0; border: 1px solid #e5e7eb;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h4 style="margin: 0; color: #374151;">{service_name}</h4>
+                        <p style="margin: 5px 0 0 0; color: #6b7280; font-size: 14px;">{description}</p>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 20px;">{indicator}</div>
+                        <div style="font-size: 12px; color: #6b7280;">{status}</div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Configuration info
+    st.markdown("#### ⚙️ Configuration Details")
+    
+    config_col1, config_col2 = st.columns(2)
+    
+    with config_col1:
+        st.markdown("##### 🎤 Audio Processing")
+        st.code(f"""
+Azure Region: {AZURE_SPEECH_REGION}
+Language: en-CA
+Max Audio: 10MB
+Formats: WAV, MP3, M4A, OGG
+        """, language="text")
+    
+    with config_col2:
+        st.markdown("##### 🧠 AI Model")
+        st.code(f"""
+Model: facebook/bart-large-mnli
+Type: Zero-shot classification
+Device: CPU
+Confidence Threshold: 70%
+        """, language="text")
+    
+    # System logs
+    st.markdown("#### 📊 System Activity")
+    
+    activity_data = {
+        "Time": ["14:32:15", "14:31:42", "14:30:58", "14:29:33", "14:28:15"],
+        "Event": [
+            "Emergency call processed - Medical",
+            "AI classification completed",
+            "Location detected via GPS",
+            "Audio transcription successful",
+            "System health check passed"
+        ],
+        "Status": ["✅", "✅", "✅", "✅", "✅"]
+    }
+    
+    st.dataframe(activity_data, use_container_width=True, hide_index=True)
+
+# ===================================
+# MAIN APPLICATION
+# ===================================
+
+def main():
+    """Main application"""
+    try:
+        load_custom_css()
+        
+        # Header
+        st.markdown("""
+        <div style="text-align: center; margin-bottom: 30px;">
+            <h1 style="color: #1f2937;">🚨 AI911 Emergency Call System</h1>
+            <p style="color: #6b7280; font-size: 18px;">Advanced Emergency Classification & Response Platform with AI</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Navigation
+        tabs = st.tabs([
+            "📞 Emergency Response", 
+            "📊 Analytics Dashboard",
+            "📁 Call History", 
+            "⚙️ System Status",
+            "📚 Help & Training"
+        ])
+        
+        with tabs[0]:
+            show_emergency_response_tab()
+        
+        with tabs[1]:
+            show_analytics_dashboard()
+        
+        with tabs[2]:
+            show_call_history_tab()
+        
+        with tabs[3]:
+            show_system_status_tab()
+        
+        with tabs[4]:
+            show_help_tab()
+            
+    except Exception as e:
+        logger.error(f"Application error: {e}")
+        st.error(f"Application error: {e}")
+
+if __name__ == "__main__":
+    main()
