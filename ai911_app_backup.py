@@ -1,7 +1,3 @@
-# AI Classification imports
-from transformers import pipeline
-import torch
-
 import streamlit as st
 import os
 import datetime
@@ -17,22 +13,6 @@ import struct
 import uuid
 import logging
 from pathlib import Path
-import requests
-import random
-
-# Geolocation imports
-try:
-    from streamlit_geolocation import streamlit_geolocation
-    GEOLOCATION_AVAILABLE = True
-except ImportError:
-    GEOLOCATION_AVAILABLE = False
-    
-try:
-    import folium
-    from streamlit_folium import st_folium
-    FOLIUM_AVAILABLE = True
-except ImportError:
-    FOLIUM_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -52,9 +32,6 @@ def init_session_state():
     defaults = {
         'audio_buffer': None,
         'current_location': "",
-        'detected_coordinates': None,
-        'location_accuracy': None,
-        'show_location_map': False,
         'analysis_result': None,
         'show_results': False,
         'processed_transcript': "",
@@ -85,245 +62,6 @@ setup_directories()
 # Azure configuration
 AZURE_SPEECH_KEY = "2AjtcKASybFagZKRTfXk3EciDWNNPEpqYS9rs5Dm3U4uCg4RO2BLJQQJ99BFACREanaXJ3w3AAAYACOGOH7j"
 AZURE_SPEECH_REGION = "canadaeast"
-
-# ===================================
-# GEOLOCATION FUNCTIONS
-# ===================================
-
-def reverse_geocode(lat, lon):
-    """Convert coordinates to street address"""
-    try:
-        # Using Nominatim (OpenStreetMap) - free, no API key needed
-        url = f"https://nominatim.openstreetmap.org/reverse"
-        params = {
-            'lat': lat,
-            'lon': lon,
-            'format': 'json',
-            'addressdetails': 1
-        }
-        headers = {
-            'User-Agent': 'AI911-Emergency-System/1.0'
-        }
-        
-        response = requests.get(url, params=params, headers=headers, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            
-            # Build proper address format for emergency response
-            addr = data.get('address', {})
-            address_parts = []
-            
-            # Street number and name (most important for emergency)
-            if addr.get('house_number'):
-                address_parts.append(addr['house_number'])
-            if addr.get('road'):
-                address_parts.append(addr['road'])
-            elif addr.get('street'):
-                address_parts.append(addr['street'])
-            
-            # City
-            city = addr.get('city') or addr.get('town') or addr.get('village') or addr.get('municipality', 'Toronto')
-            if city:
-                address_parts.append(city)
-            
-            # Province/State
-            state = addr.get('state', 'ON')
-            if state:
-                address_parts.append(state)
-            
-            # Postal code
-            if addr.get('postcode'):
-                address_parts.append(addr['postcode'])
-            
-            return ', '.join(address_parts) if address_parts else data.get('display_name', f"{lat:.6f}, {lon:.6f}")
-            
-    except Exception as e:
-        logger.error(f"Reverse geocoding error: {e}")
-        return f"Coordinates: {lat:.6f}, {lon:.6f}"
-
-def show_enhanced_location_section():
-    """Enhanced location input with real geolocation"""
-    st.markdown("### 📍 Emergency Location")
-    
-    # Check if geolocation is available
-    if not GEOLOCATION_AVAILABLE:
-        st.warning("⚠️ Geolocation not available. Install with: `pip install streamlit-geolocation`")
-    
-    # Main location input
-    location_col1, location_col2 = st.columns([3, 1])
-    
-    with location_col1:
-        location_input = st.text_input(
-            "Address or Location:",
-            value=st.session_state.current_location,
-            placeholder="123 Main Street, Toronto, ON",
-            help="Enter address manually or use the location detector"
-        )
-    
-    with location_col2:
-        st.markdown("<br>", unsafe_allow_html=True)  # Spacing
-        if GEOLOCATION_AVAILABLE:
-            detect_location = st.button(
-                "📍 Detect My Location", 
-                use_container_width=True,
-                type="secondary",
-                help="Uses your device's GPS for accurate location"
-            )
-        else:
-            st.button(
-                "📍 Install Geolocation", 
-                use_container_width=True,
-                type="secondary",
-                disabled=True,
-                help="Geolocation package not installed"
-            )
-            detect_location = False
-    
-    # Geolocation detection
-    if detect_location and GEOLOCATION_AVAILABLE:
-        with st.spinner("🔍 Detecting your location... (Please allow location access if prompted)"):
-            try:
-                # Get location using streamlit-geolocation
-                location_data = streamlit_geolocation(key="geolocation")
-                
-                if location_data and location_data['latitude'] is not None:
-                    lat = location_data['latitude']
-                    lon = location_data['longitude']
-                    accuracy = location_data.get('accuracy', 'Unknown')
-                    
-                    # Convert coordinates to address
-                    address = reverse_geocode(lat, lon)
-                    
-                    # Update session state
-                    st.session_state.current_location = address
-                    st.session_state.detected_coordinates = (lat, lon)
-                    st.session_state.location_accuracy = accuracy
-                    st.session_state.show_location_map = True
-                    
-                    # Show success message with accuracy
-                    st.success(f"✅ Location detected successfully!")
-                    
-                    # Display location info
-                    info_col1, info_col2 = st.columns(2)
-                    with info_col1:
-                        st.info(f"📍 **Address:** {address}")
-                    with info_col2:
-                        if isinstance(accuracy, (int, float)):
-                            if accuracy < 50:
-                                accuracy_emoji = "🟢"
-                                accuracy_text = "High"
-                            elif accuracy < 100:
-                                accuracy_emoji = "🟡"
-                                accuracy_text = "Medium"
-                            else:
-                                accuracy_emoji = "🔴"
-                                accuracy_text = "Low"
-                            st.info(f"{accuracy_emoji} **Accuracy:** ±{accuracy:.0f}m ({accuracy_text})")
-                    
-                    st.rerun()
-                else:
-                    st.error("❌ Could not get location. Please ensure location services are enabled and try again.")
-                    
-            except Exception as e:
-                st.error(f"❌ Location detection failed: {str(e)}")
-                st.info("💡 Tip: Make sure you're using HTTPS (not HTTP) and have location services enabled")
-    
-    # Show map if location was detected and folium is available
-    if st.session_state.show_location_map and st.session_state.detected_coordinates and FOLIUM_AVAILABLE:
-        with st.expander("🗺️ Location Map", expanded=True):
-            lat, lon = st.session_state.detected_coordinates
-            
-            # Create map
-            m = folium.Map(location=[lat, lon], zoom_start=17)
-            
-            # Add marker with accuracy circle
-            folium.Marker(
-                [lat, lon],
-                popup=f"📍 Emergency Location<br>{st.session_state.current_location}",
-                tooltip="Emergency Location",
-                icon=folium.Icon(color='red', icon='info-sign')
-            ).add_to(m)
-            
-            # Add accuracy circle
-            if st.session_state.location_accuracy and isinstance(st.session_state.location_accuracy, (int, float)):
-                folium.Circle(
-                    location=[lat, lon],
-                    radius=st.session_state.location_accuracy,
-                    popup=f"Accuracy: ±{st.session_state.location_accuracy}m",
-                    color='blue',
-                    fill=True,
-                    fillOpacity=0.2
-                ).add_to(m)
-            
-            # Display map
-            st_folium(m, height=300, width=None, returned_objects=[])
-            
-            # Additional options
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                if st.button("🔄 Update Location"):
-                    st.session_state.show_location_map = False
-                    st.rerun()
-            with col2:
-                maps_url = f"https://www.google.com/maps?q={lat},{lon}"
-                st.markdown(f"[🗺️ Open in Google Maps]({maps_url})")
-            with col3:
-                st.markdown(f"**GPS:** {lat:.6f}, {lon:.6f}")
-    
-    # Additional location details (optional)
-    with st.expander("➕ Additional Location Details", expanded=False):
-        add_col1, add_col2 = st.columns(2)
-        
-        with add_col1:
-            floor_apt = st.text_input(
-                "Floor/Apartment/Unit:",
-                placeholder="e.g., 3rd Floor, Apt 301",
-                help="Specific unit or floor information"
-            )
-            
-            landmark = st.text_input(
-                "Nearby Landmark:",
-                placeholder="e.g., Across from Tim Hortons",
-                help="Visible landmarks for easier identification"
-            )
-        
-        with add_col2:
-            entrance = st.text_input(
-                "Entrance/Access:",
-                placeholder="e.g., Back entrance, Blue door",
-                help="Special entrance or access instructions"
-            )
-            
-            special_instructions = st.text_area(
-                "Special Instructions:",
-                placeholder="e.g., Gate code 1234, Ring buzzer 301",
-                height=70,
-                help="Any special access instructions for emergency responders"
-            )
-    
-    # Compile full location information
-    full_location = location_input or st.session_state.current_location
-    
-    # Add additional details if provided
-    additional_details = []
-    if 'floor_apt' in locals() and floor_apt:
-        additional_details.append(floor_apt)
-    if 'landmark' in locals() and landmark:
-        additional_details.append(f"Near {landmark}")
-    if 'entrance' in locals() and entrance:
-        additional_details.append(f"Access: {entrance}")
-    if 'special_instructions' in locals() and special_instructions:
-        additional_details.append(special_instructions)
-    
-    if additional_details:
-        full_location += f" | {' | '.join(additional_details)}"
-    
-    # Add GPS coordinates if available
-    if st.session_state.detected_coordinates:
-        lat, lon = st.session_state.detected_coordinates
-        full_location += f" | GPS: {lat:.6f}, {lon:.6f}"
-    
-    return full_location
 
 # ===================================
 # ENHANCED KEYWORD CLASSIFIER
@@ -481,91 +219,14 @@ class AdvancedEmergencyClassifier:
         # Preprocess transcript
         transcript_clean = transcript.lower().strip()
         
-        # KEYWORD ANALYSIS
         # Score emergency types
         type_scores = self._score_emergency_types(transcript_clean)
         
         # Determine primary emergency type and confidence
-        keyword_emergency_type, keyword_confidence = self._determine_emergency_type(type_scores)
+        emergency_type, confidence = self._determine_emergency_type(type_scores)
         
         # Determine severity
-        keyword_severity = self._determine_severity(transcript_clean, keyword_emergency_type, type_scores)
-        
-        # AI ANALYSIS (if available)
-        ai_emergency_type = None
-        ai_confidence = None
-        ai_severity = None
-        
-        if ai_classifier:
-            try:
-                # Define labels for emergency types
-                emergency_labels = [
-                    "medical emergency requiring ambulance",
-                    "fire emergency requiring fire department",
-                    "police emergency requiring law enforcement",
-                    "traffic accident requiring emergency response"
-                ]
-                
-                # Classify emergency type with AI
-                ai_type_result = ai_classifier(
-                    transcript,
-                    candidate_labels=emergency_labels,
-                    multi_label=False
-                )
-                
-                # Map AI results to our emergency types
-                top_label = ai_type_result['labels'][0]
-                if "medical" in top_label:
-                    ai_emergency_type = "Medical"
-                elif "fire" in top_label:
-                    ai_emergency_type = "Fire"
-                elif "police" in top_label:
-                    ai_emergency_type = "Police"
-                else:
-                    ai_emergency_type = "Traffic"
-                
-                ai_confidence = ai_type_result['scores'][0]
-                
-                # Classify severity with AI
-                severity_labels = [
-                    "life-threatening critical emergency",
-                    "high priority urgent situation",
-                    "medium priority emergency",
-                    "low priority non-urgent"
-                ]
-                
-                ai_severity_result = ai_classifier(
-                    transcript,
-                    candidate_labels=severity_labels,
-                    multi_label=False
-                )
-                
-                # Map severity
-                severity_label = ai_severity_result['labels'][0]
-                if "critical" in severity_label:
-                    ai_severity = "Critical"
-                elif "high" in severity_label:
-                    ai_severity = "High"
-                elif "medium" in severity_label:
-                    ai_severity = "Medium"
-                else:
-                    ai_severity = "Low"
-                    
-            except Exception as e:
-                logger.warning(f"AI classification failed: {e}")
-                # AI failed, we'll use keyword results only
-        
-        # COMBINE RESULTS - Use AI if confident, otherwise keyword
-        if ai_emergency_type and ai_confidence > 0.7:
-            emergency_type = ai_emergency_type
-            confidence = ai_confidence
-            severity = ai_severity
-            method = "ai_classification"
-        else:
-            emergency_type = keyword_emergency_type
-            confidence = keyword_confidence
-            severity = keyword_severity
-            method = "keyword_classification"
+        severity = self._determine_severity(transcript_clean, emergency_type, type_scores)
         
         # Extract information
         extracted_info = self._extract_comprehensive_info(transcript_clean)
@@ -580,10 +241,9 @@ class AdvancedEmergencyClassifier:
         call_id = f"CALL_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         
         analysis_time = time.time() - start_time
-        logger.info(f"Analysis completed in {analysis_time:.2f} seconds using {method}")
+        logger.info(f"Analysis completed in {analysis_time:.2f} seconds")
         
-        # Build comprehensive result
-        result = {
+        return {
             "call_id": call_id,
             "timestamp": datetime.datetime.now().isoformat(),
             "emergency_type": emergency_type,
@@ -594,24 +254,8 @@ class AdvancedEmergencyClassifier:
             "matched_keywords": matched_keywords,
             "extracted_info": extracted_info,
             "recommendations": recommendations,
-            "method": method,
-            # Include both analyses for comparison
-            "keyword_analysis": {
-                "type": keyword_emergency_type,
-                "severity": keyword_severity,
-                "confidence": keyword_confidence
-            }
+            "method": "enhanced_keyword_classification"
         }
-        
-        # Add AI analysis if available
-        if ai_emergency_type:
-            result["ai_analysis"] = {
-                "type": ai_emergency_type,
-                "severity": ai_severity,
-                "confidence": ai_confidence
-            }
-        
-        return result
     
     def _score_emergency_types(self, transcript: str) -> Dict[str, float]:
         """Score each emergency type based on keywords"""
@@ -793,23 +437,6 @@ class AdvancedEmergencyClassifier:
 
 # Initialize classifier
 classifier = AdvancedEmergencyClassifier()
-
-# Initialize AI classifier
-@st.cache_resource
-def load_ai_classifier():
-    """Load the AI model once and cache it"""
-    try:
-        return pipeline(
-            "zero-shot-classification",
-            model="facebook/bart-large-mnli",
-            device=-1  # Use CPU
-        )
-    except Exception as e:
-        st.warning(f"AI model not available: {e}")
-        return None
-
-# Load AI model
-ai_classifier = load_ai_classifier()
 
 # ===================================
 # AUDIO PROCESSING
@@ -1034,79 +661,8 @@ def load_custom_css():
             font-size: 18px;
             padding: 12px 24px;
         }
-        
-        .dispatch-success {
-            background-color: #f0fdf4;
-            border: 2px solid #22c55e;
-            border-radius: 8px;
-            padding: 20px;
-            margin: 20px 0;
-        }
-        
-        .dispatch-header {
-            color: #16a34a;
-            font-size: 20px;
-            font-weight: bold;
-            margin-bottom: 10px;
-        }
-        
-        .dispatch-detail {
-            color: #374151;
-            font-size: 16px;
-            line-height: 1.8;
-        }
     </style>
     """, unsafe_allow_html=True)
-
-# ===================================
-# DISPATCH FUNCTIONS
-# ===================================
-
-def handle_dispatch(dispatch_type: str, call_id: str, location: str):
-    """Handle dispatch button click with simple, professional feedback"""
-    
-    # Generate dispatch ID
-    dispatch_id = f"DSP-{datetime.datetime.now().strftime('%Y%m%d')}-{random.randint(1000, 9999)}"
-    
-    # Calculate simulated ETA
-    eta = random.randint(3, 8)
-    
-    # Simple dispatch confirmation
-    st.markdown(f"""
-    <div class="dispatch-success">
-        <div class="dispatch-header">✅ {dispatch_type} Units Dispatched Successfully</div>
-        <div class="dispatch-detail">
-            <strong>Dispatch ID:</strong> {dispatch_id}<br>
-            <strong>Location:</strong> {location}<br>
-            <strong>Units:</strong> {get_dispatch_units(dispatch_type)}<br>
-            <strong>ETA:</strong> {eta} minutes<br>
-            <strong>Status:</strong> Responding Code 3
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Simple status indicator
-    with st.container():
-        cols = st.columns(5)
-        statuses = ["📞 Received", "📡 Dispatched", "🚨 En Route", "📍 On Scene", "✅ Complete"]
-        for i, (col, status) in enumerate(zip(cols, statuses)):
-            with col:
-                if i <= 2:  # Show first 3 as active
-                    st.success(status)
-                else:
-                    st.info(status)
-    
-    # Log the dispatch
-    logger.info(f"{dispatch_type} units dispatched for call {call_id} - Dispatch ID: {dispatch_id}")
-
-def get_dispatch_units(dispatch_type: str) -> str:
-    """Get appropriate units for dispatch type"""
-    units = {
-        "EMS": "Ambulance 47, ALS Unit 12",
-        "Fire": "Engine 23, Ladder 15",
-        "Police": "Unit 34, Unit 56"
-    }
-    return units.get(dispatch_type, "Multiple units")
 
 # ===================================
 # UI COMPONENTS
@@ -1153,53 +709,75 @@ def show_enhanced_analysis_results():
             else:
                 st.markdown("**Confidence:** N/A")
         
-        # Show both analyses if AI was used
-        if analysis.get('ai_analysis') and analysis.get('keyword_analysis'):
-            st.markdown("---")
-            st.markdown("### 🔄 Classification Comparison")
-            
-            col_kw, col_ai = st.columns(2)
-            
-            with col_kw:
-                st.markdown("**📝 Keyword Analysis:**")
-                kw = analysis['keyword_analysis']
-                st.markdown(f"- Type: {kw['type']}")
-                st.markdown(f"- Severity: {kw['severity']}")
-                st.markdown(f"- Confidence: {kw['confidence']:.0%}")
-            
-            with col_ai:
-                st.markdown("**🧠 AI Analysis:**")
-                ai = analysis['ai_analysis']
-                st.markdown(f"- Type: {ai['type']}")
-                st.markdown(f"- Severity: {ai['severity']}")
-                st.markdown(f"- Confidence: {ai['confidence']:.0%}")
-            
-            # Show which method was used
-            method_used = analysis.get('method', 'unknown')
-            if method_used == 'ai_classification':
-                st.success("✅ Using AI classification (high confidence)")
-            else:
-                st.info("ℹ️ Using keyword classification")
-        
         # Show transcript
         if st.session_state.processed_transcript:
             st.markdown("**📝 Processed Transcript:**")
             st.text_area("", value=st.session_state.processed_transcript, height=100, 
                         disabled=True, key=f"transcript_{call_id}", label_visibility="collapsed")
         
-        # Location and victim info - FIXED
+        # Location and victim info
         location = analysis.get('location', {})
-        if location:
-            if isinstance(location, dict):
-                address = location.get('address', 'Unknown')
-                if address != 'Unknown':
-                    st.markdown(f"**📍 Location:** {address}")
-            elif isinstance(location, str):
-                st.markdown(f"**📍 Location:** {location}")
+        if isinstance(location, dict) and location.get('address', 'Unknown') != 'Unknown':
+            st.markdown(f"**📍 Location:** {location['address']}")
         
         extracted_info = analysis.get('extracted_info', {})
         if isinstance(extracted_info, dict) and extracted_info.get('victim_count'):
             st.markdown(f"**👥 Victims:** {extracted_info['victim_count']}")
+        
+        # Recommendations checklist
+        st.subheader("📋 Recommended Actions - Pre-Dispatch Checklist")
+        
+        if emergency_type == "Medical":
+            st.markdown("**🏥 Medical Emergency Protocol:**")
+            actions = [
+                "☐ Confirm exact location and nearest cross-streets",
+                "☐ Get patient's age and current condition", 
+                "☐ Ask about consciousness and breathing status",
+                "☐ Inquire about medications or known conditions",
+                "☐ Keep caller on line for medical instructions",
+                "☐ Prepare to provide CPR instructions if needed"
+            ]
+            for action in actions:
+                st.markdown(action)
+                
+        elif emergency_type == "Fire":
+            st.markdown("**🔥 Fire Emergency Protocol:**")
+            actions = [
+                "☐ Confirm exact address and type of structure",
+                "☐ Determine if anyone is trapped inside",
+                "☐ Ask about size and location of fire",
+                "☐ Check for hazardous materials on site",
+                "☐ Instruct on evacuation procedures",
+                "☐ Advise to stay low and exit immediately"
+            ]
+            for action in actions:
+                st.markdown(action)
+                
+        elif emergency_type == "Police":
+            st.markdown("**👮 Police Emergency Protocol:**")
+            actions = [
+                "☐ Confirm caller's safety and current location",
+                "☐ Get suspect description (height, clothing, direction)",
+                "☐ Ask about weapons or threats made",
+                "☐ Determine number of suspects/victims",
+                "☐ Keep caller on line if safe to do so",
+                "☐ Advise on safety measures (lock doors, hide)"
+            ]
+            for action in actions:
+                st.markdown(action)
+                
+        elif emergency_type == "Traffic":
+            st.markdown("**🚗 Traffic Emergency Protocol:**")
+            actions = [
+                "☐ Confirm exact location (highway, mile marker)",
+                "☐ Determine number of vehicles involved",
+                "☐ Ask about injuries and trapped persons",
+                "☐ Check for hazards (fire, fuel spill)",
+                "☐ Advise on traffic safety measures",
+                "☐ Get vehicle descriptions and directions"
+            ]
+            for action in actions:
+                st.markdown(action)
         
         # Priority indicator
         if severity == "Critical":
@@ -1207,94 +785,23 @@ def show_enhanced_analysis_results():
         elif severity == "High":
             st.warning("🔶 **HIGH PRIORITY** - Expedited response needed")
         
-        # Recommendations checklist - FIXED
-        st.markdown("---")
-        st.subheader("📋 Recommended Actions - Pre-Dispatch Checklist")
-        
-        # Create the checklist in a more visible way
-        checklist_container = st.container()
-        
-        with checklist_container:
-            if emergency_type == "Medical":
-                st.markdown("### 🏥 Medical Emergency Protocol:")
-                actions = [
-                    "Confirm exact location and nearest cross-streets",
-                    "Get patient's age and current condition", 
-                    "Ask about consciousness and breathing status",
-                    "Inquire about medications or known conditions",
-                    "Keep caller on line for medical instructions",
-                    "Prepare to provide CPR instructions if needed"
-                ]
-                for i, action in enumerate(actions, 1):
-                    st.checkbox(action, key=f"medical_{i}_{call_id}")
-                    
-            elif emergency_type == "Fire":
-                st.markdown("### 🔥 Fire Emergency Protocol:")
-                actions = [
-                    "Confirm exact address and type of structure",
-                    "Determine if anyone is trapped inside",
-                    "Ask about size and location of fire",
-                    "Check for hazardous materials on site",
-                    "Instruct on evacuation procedures",
-                    "Advise to stay low and exit immediately"
-                ]
-                for i, action in enumerate(actions, 1):
-                    st.checkbox(action, key=f"fire_{i}_{call_id}")
-                    
-            elif emergency_type == "Police":
-                st.markdown("### 👮 Police Emergency Protocol:")
-                actions = [
-                    "Confirm caller's safety and current location",
-                    "Get suspect description (height, clothing, direction)",
-                    "Ask about weapons or threats made",
-                    "Determine number of suspects/victims",
-                    "Keep caller on line if safe to do so",
-                    "Advise on safety measures (lock doors, hide)"
-                ]
-                for i, action in enumerate(actions, 1):
-                    st.checkbox(action, key=f"police_{i}_{call_id}")
-                    
-            elif emergency_type == "Traffic":
-                st.markdown("### 🚗 Traffic Emergency Protocol:")
-                actions = [
-                    "Confirm exact location (highway, mile marker)",
-                    "Determine number of vehicles involved",
-                    "Ask about injuries and trapped persons",
-                    "Check for hazards (fire, fuel spill)",
-                    "Advise on traffic safety measures",
-                    "Get vehicle descriptions and directions"
-                ]
-                for i, action in enumerate(actions, 1):
-                    st.checkbox(action, key=f"traffic_{i}_{call_id}")
-            else:
-                st.info("No specific protocol available for this emergency type")
-        
-        # Dispatch buttons with simple feedback
-        st.markdown("---")
+        # Dispatch buttons
         st.subheader("🚀 Quick Dispatch")
-        st.info("✅ Complete the checklist above before dispatching units")
+        st.info("Complete the checklist above before dispatching units")
         
         col1, col2, col3 = st.columns(3)
         
-        # Extract location for dispatch
-        location_for_dispatch = "Location pending"
-        if location:
-            if isinstance(location, dict):
-                location_for_dispatch = location.get('address', 'Location pending')
-            elif isinstance(location, str):
-                location_for_dispatch = location
-        
         with col1:
             if st.button("🚑 Dispatch EMS", use_container_width=True, key=f"ems_{call_id}"):
-                handle_dispatch("EMS", call_id, location_for_dispatch)
+                st.success("✅ EMS units dispatched!")
         
         with col2:
             if st.button("🚒 Dispatch Fire", use_container_width=True, key=f"fire_{call_id}"):
-                handle_dispatch("Fire", call_id, location_for_dispatch)
+                st.success("✅ Fire units dispatched!")
         
         with col3:
             if st.button("🚔 Dispatch Police", use_container_width=True, key=f"police_{call_id}"):
-                handle_dispatch("Police", call_id, location_for_dispatch)
+                st.success("✅ Police units dispatched!")
                 
     except Exception as e:
         logger.error(f"Error displaying results: {e}")
@@ -1345,119 +852,385 @@ def show_call_history_tab():
             logger.error(f"Error displaying call {i}: {e}")
             continue
 
-def show_help_tab():
-    """Help and training guide"""
-    st.markdown("### 📚 Help & Training Guide")
+def show_system_status():
+    """Compact system status panel"""
+    st.markdown("### 📊 System Status")
     
-    # Quick start guide
-    with st.expander("🚀 Quick Start Guide", expanded=True):
-        st.markdown("""
-        **Getting Started in 3 Steps:**
-        
-        1. **Input Emergency Call**
-           - 🎤 Record audio directly (requires Streamlit 1.31.0+)
-           - 📁 Upload audio file (WAV, MP3, M4A, OGG)
-           - ⌨️ Type/paste transcript manually
-        
-        2. **Add Location Information**  
-           - Enter address manually
-           - Click "📍 Detect My Location" for GPS location
-           - System recognizes common address patterns
-        
-        3. **Process & Respond**
-           - Click "🚨 PROCESS EMERGENCY CALL"
-           - Review analysis results
-           - Follow recommended actions checklist
-           - Dispatch appropriate units
-        """)
+    # Compact system health - single line
+    st.markdown("""
+    <div style="background: #22c55e; color: white; padding: 10px; 
+                border-radius: 6px; text-align: center; margin-bottom: 15px;">
+        <span style="font-size: 14px; font-weight: bold;">🟢 OPERATIONAL</span>
+    </div>
+    """, unsafe_allow_html=True)
     
-    # Classification guide
-    with st.expander("📋 Emergency Classification Guide"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("""
-            **Emergency Types:**
-            
-            **🏥 Medical Emergencies**
-            - Breathing problems, chest pain
-            - Unconsciousness, seizures
-            - Severe injuries, bleeding
-            - Heart attack, stroke symptoms
-            
-            **🔥 Fire Emergencies**
-            - Structure fires, explosions
-            - Gas leaks, electrical fires
-            - Smoke reports, fire alarms
-            
-            **👮 Police Emergencies**
-            - Crimes in progress
-            - Weapons involved
-            - Break-ins, robberies
-            - Threatening situations
-            
-            **🚗 Traffic Emergencies**
-            - Vehicle accidents
-            - Injuries from crashes
-            - Hit and run incidents
-            """)
-        
-        with col2:
-            st.markdown("""
-            **Severity Levels:**
-            
-            **🔴 Critical**
-            - Life-threatening situations
-            - Immediate response required
-            - Examples: Cardiac arrest, building fire
-            
-            **🟠 High Priority**
-            - Urgent response needed
-            - Examples: Injuries, small fires
-            
-            **🟡 Medium Priority**
-            - Standard response time
-            - Examples: Minor injuries
-            
-            **🟢 Low Priority**
-            - Non-urgent response
-            - Examples: Reports, disputes
-            """)
-    
-    # System information
-    st.markdown("### ℹ️ System Information")
-    
+    # Compact metrics in 2x2 grid
     col1, col2 = st.columns(2)
     
     with col1:
+        st.markdown(f"""
+        <div style="background: white; padding: 10px; border-radius: 6px; 
+                   text-align: center; margin-bottom: 8px; border: 1px solid #e5e7eb;">
+            <div style="font-size: 16px;">📞</div>
+            <div style="font-size: 11px; color: #6b7280;">Calls</div>
+            <div style="font-size: 18px; font-weight: bold; color: #1f2937;">{st.session_state.call_counter}</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
         st.markdown("""
-        **Version:** 2.0 Enhanced with AI
-        **Classification:** Hybrid (Keywords + AI)
-        **Location:** GPS + Pattern extraction
-        **Last Updated:** 2024
-        """)
+        <div style="background: white; padding: 10px; border-radius: 6px; 
+                   text-align: center; margin-bottom: 8px; border: 1px solid #e5e7eb;">
+            <div style="font-size: 16px;">🎯</div>
+            <div style="font-size: 11px; color: #6b7280;">Accuracy</div>
+            <div style="font-size: 18px; font-weight: bold; color: #1f2937;">94%</div>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col2:
+        st.markdown(f"""
+        <div style="background: white; padding: 10px; border-radius: 6px; 
+                   text-align: center; margin-bottom: 8px; border: 1px solid #e5e7eb;">
+            <div style="font-size: 16px;">⚡</div>
+            <div style="font-size: 11px; color: #6b7280;">Response</div>
+            <div style="font-size: 18px; font-weight: bold; color: #1f2937;">{st.session_state.system_stats['avg_response_time']:.1f}s</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
         st.markdown("""
-        **Features:**
-        - 100+ emergency keywords
-        - AI-powered classification
-        - Real-time GPS location
-        - Severity detection
-        - Confidence scoring
-        - Azure Speech support
-        """)
+        <div style="background: white; padding: 10px; border-radius: 6px; 
+                   text-align: center; margin-bottom: 8px; border: 1px solid #e5e7eb;">
+            <div style="font-size: 16px;">🚨</div>
+            <div style="font-size: 11px; color: #6b7280;">Units</div>
+            <div style="font-size: 18px; font-weight: bold; color: #1f2937;">12</div>
+        </div>
+        """, unsafe_allow_html=True)
     
-    # Emergency contacts
-    st.markdown("---")
-    st.markdown("""
-    ### 📞 Emergency Contacts
+    # Compact service status
+    st.markdown("#### 🔧 Services")
     
-    **For Real Emergencies: CALL 911**
+    azure_status = "🟢" if AZURE_SPEECH_KEY != "YOUR_AZURE_KEY_HERE" else "🔴"
     
-    This is a training and demonstration system only.
-    Always follow your organization's emergency response protocols.
-    """)
+    st.markdown(f"""
+    <div style="background: #f8fafc; padding: 8px 12px; border-radius: 6px; margin: 5px 0;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 12px; color: #374151;">Azure Speech</span>
+            <span style="font-size: 12px;">{azure_status}</span>
+        </div>
+    </div>
+    <div style="background: #f8fafc; padding: 8px 12px; border-radius: 6px; margin: 5px 0;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 12px; color: #374151;">Classifier</span>
+            <span style="font-size: 12px;">🟢</span>
+        </div>
+    </div>
+    <div style="background: #f8fafc; padding: 8px 12px; border-radius: 6px; margin: 5px 0;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 12px; color: #374151;">Database</span>
+            <span style="font-size: 12px;">🟢</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Show analysis results if available
+    if st.session_state.show_results and st.session_state.analysis_result:
+        show_enhanced_analysis_results()
+
+def show_enhanced_analysis_results():
+    """Display analysis results in preferred format - more compact"""
+    try:
+        if not st.session_state.analysis_result:
+            return
+        
+        analysis = st.session_state.analysis_result
+        
+        if not isinstance(analysis, dict):
+            st.error("Analysis result format error")
+            return
+        
+        # Compact results header
+        st.markdown("---")
+        st.markdown("### 🚨 Emergency Analysis")
+        
+        # Compact basic information in 2 rows
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            call_id = analysis.get('call_id', 'Unknown')
+            emergency_type = analysis.get('emergency_type', 'Unknown')
+            st.markdown(f"**ID:** `{call_id[-8:]}`")  # Show last 8 chars
+            st.markdown(f"**Type:** {emergency_type}")
+        
+        with col2:
+            severity = analysis.get('severity', 'Unknown')
+            confidence = analysis.get('confidence', 0)
+            severity_colors = {
+                "Critical": "#dc2626", "High": "#d97706", 
+                "Medium": "#ca8a04", "Low": "#16a34a"
+            }
+            st.markdown(f"**Severity:** <span style='color: {severity_colors.get(severity, '#666')}'>{severity}</span>", 
+                       unsafe_allow_html=True)
+            if isinstance(confidence, (int, float)):
+                st.markdown(f"**Confidence:** {confidence:.0%}")
+            else:
+                st.markdown("**Confidence:** N/A")
+        
+        # Compact transcript - use markdown instead of text_area to avoid height issues
+        if st.session_state.processed_transcript:
+            st.markdown("**📝 Transcript:**")
+            st.markdown(f"""
+            <div style="background: #f8fafc; padding: 12px; border-radius: 6px; 
+                       border: 1px solid #e5e7eb; font-family: monospace; font-size: 13px;
+                       max-height: 80px; overflow-y: auto; line-height: 1.4;">
+                {st.session_state.processed_transcript}
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Location and victim info - compact
+        location = analysis.get('location', {})
+        if isinstance(location, dict) and location.get('address', 'Unknown') != 'Unknown':
+            st.markdown(f"**📍 Location:** {location['address']}")
+        
+        # Priority indicator - more prominent for critical
+        if severity == "Critical":
+            st.error("⚡ **CRITICAL PRIORITY** - Immediate dispatch required")
+        elif severity == "High":
+            st.warning("🔶 **HIGH PRIORITY** - Expedited response needed")
+        
+        # Compact protocol checklist
+        st.markdown("**📋 Pre-Dispatch Checklist:**")
+        
+        if emergency_type == "Medical":
+            actions = [
+                "☐ Confirm location & patient condition",
+                "☐ Check consciousness & breathing", 
+                "☐ Ask about medications",
+                "☐ Keep caller on line"
+            ]
+        elif emergency_type == "Fire":
+            actions = [
+                "☐ Confirm address & structure type",
+                "☐ Check if anyone trapped",
+                "☐ Ask about fire size/location",
+                "☐ Advise evacuation procedures"
+            ]
+        elif emergency_type == "Police":
+            actions = [
+                "☐ Confirm caller safety",
+                "☐ Get suspect description",
+                "☐ Ask about weapons",
+                "☐ Advise safety measures"
+            ]
+        elif emergency_type == "Traffic":
+            actions = [
+                "☐ Confirm exact location",
+                "☐ Number of vehicles involved",
+                "☐ Check for injuries",
+                "☐ Ask about hazards"
+            ]
+        else:
+            actions = ["☐ Follow standard emergency protocol"]
+        
+        for action in actions:
+            st.markdown(action)
+        
+        # Enhanced dispatch section with strong recommendations
+        st.markdown("---")
+        st.markdown("### 🚀 **EMERGENCY DISPATCH REQUIRED**")
+        
+        # Strong priority-based recommendations
+        if severity == "Critical":
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); 
+                        color: white; padding: 15px; border-radius: 8px; margin: 10px 0;
+                        animation: pulse 2s infinite; box-shadow: 0 4px 8px rgba(220, 38, 38, 0.3);">
+                <h4 style="margin: 0; text-align: center; font-size: 16px;">
+                    ⚡ CRITICAL EMERGENCY - IMMEDIATE DISPATCH REQUIRED ⚡
+                </h4>
+                <p style="margin: 8px 0 0 0; text-align: center; font-size: 14px;">
+                    Life-threatening situation detected. Deploy all necessary units immediately.
+                </p>
+            </div>
+            <style>
+                @keyframes pulse {
+                    0% { transform: scale(1); }
+                    50% { transform: scale(1.02); }
+                    100% { transform: scale(1); }
+                }
+            </style>
+            """, unsafe_allow_html=True)
+        elif severity == "High":
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); 
+                        color: white; padding: 15px; border-radius: 8px; margin: 10px 0;
+                        box-shadow: 0 4px 8px rgba(245, 158, 11, 0.3);">
+                <h4 style="margin: 0; text-align: center; font-size: 16px;">
+                    🔶 HIGH PRIORITY EMERGENCY - URGENT DISPATCH NEEDED 🔶
+                </h4>
+                <p style="margin: 8px 0 0 0; text-align: center; font-size: 14px;">
+                    Serious situation requiring immediate response. Deploy units now.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); 
+                        color: white; padding: 12px; border-radius: 8px; margin: 10px 0;">
+                <h4 style="margin: 0; text-align: center; font-size: 16px;">
+                    📋 EMERGENCY RESPONSE REQUIRED
+                </h4>
+                <p style="margin: 8px 0 0 0; text-align: center; font-size: 14px;">
+                    Deploy appropriate units following standard protocols.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Enhanced dispatch buttons with specific recommendations
+        st.markdown("**Select units to dispatch:**")
+        
+        # Get emergency-specific dispatch recommendations
+        dispatch_recommendations = {
+            "Medical": {
+                "primary": "🚑 EMS",
+                "secondary": ["🚒 Fire (if needed)", "🚔 Police (traffic control)"],
+                "message": "Medical emergency requires immediate EMS response"
+            },
+            "Fire": {
+                "primary": "🚒 Fire",
+                "secondary": ["🚑 EMS (standby)", "🚔 Police (scene control)"],
+                "message": "Fire emergency requires immediate fire suppression"
+            },
+            "Police": {
+                "primary": "🚔 Police", 
+                "secondary": ["🚑 EMS (if injuries)", "🚒 Fire (if needed)"],
+                "message": "Police emergency requires immediate law enforcement response"
+            },
+            "Traffic": {
+                "primary": "🚑 EMS",
+                "secondary": ["🚔 Police (scene control)", "🚒 Fire (if extraction needed)"],
+                "message": "Traffic emergency likely requires medical attention"
+            }
+        }
+        
+        rec = dispatch_recommendations.get(emergency_type, dispatch_recommendations["Medical"])
+        
+        # Show primary recommendation
+        st.info(f"**Primary Recommendation:** {rec['message']}")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        # Enhanced dispatch buttons with animations and balloons
+        with col1:
+            if st.button("🚑 **DISPATCH EMS**", use_container_width=True, key=f"ems_{call_id}", type="primary"):
+                st.success("🎯 **EMS UNITS DISPATCHED!**")
+                st.markdown("""
+                <div style="background: #10b981; color: white; padding: 10px; border-radius: 6px; 
+                           text-align: center; animation: slideIn 0.5s ease-out;">
+                    <strong>✅ EMS En Route</strong><br>
+                    <small>Estimated arrival: 8-12 minutes</small>
+                </div>
+                <style>
+                    @keyframes slideIn {
+                        from { opacity: 0; transform: translateY(-10px); }
+                        to { opacity: 1; transform: translateY(0); }
+                    }
+                </style>
+                """, unsafe_allow_html=True)
+                st.balloons()
+                
+                # Play success sound effect (visual representation)
+                st.markdown("🔊 *Dispatch confirmation tone*")
+        
+        with col2:
+            if st.button("🚒 **DISPATCH FIRE**", use_container_width=True, key=f"fire_{call_id}", type="primary"):
+                st.success("🎯 **FIRE UNITS DISPATCHED!**")
+                st.markdown("""
+                <div style="background: #f59e0b; color: white; padding: 10px; border-radius: 6px; 
+                           text-align: center; animation: slideIn 0.5s ease-out;">
+                    <strong>✅ Fire Department En Route</strong><br>
+                    <small>Estimated arrival: 6-10 minutes</small>
+                </div>
+                """, unsafe_allow_html=True)
+                st.balloons()
+                st.markdown("🔊 *Fire dispatch confirmation*")
+        
+        with col3:
+            if st.button("🚔 **DISPATCH POLICE**", use_container_width=True, key=f"police_{call_id}", type="primary"):
+                st.success("🎯 **POLICE UNITS DISPATCHED!**")
+                st.markdown("""
+                <div style="background: #3b82f6; color: white; padding: 10px; border-radius: 6px; 
+                           text-align: center; animation: slideIn 0.5s ease-out;">
+                    <strong>✅ Police En Route</strong><br>
+                    <small>Estimated arrival: 5-8 minutes</small>
+                </div>
+                """, unsafe_allow_html=True)
+                st.balloons()
+                st.markdown("🔊 *Police dispatch confirmation*")
+        
+        # Multi-unit dispatch for critical emergencies
+        if severity == "Critical":
+            st.markdown("---")
+            st.markdown("**🚨 CRITICAL EMERGENCY - MULTI-UNIT RESPONSE RECOMMENDED:**")
+            
+            col_multi1, col_multi2 = st.columns(2)
+            
+            with col_multi1:
+                if st.button("🚨 **DISPATCH ALL UNITS**", use_container_width=True, 
+                           key=f"all_units_{call_id}", type="primary"):
+                    st.success("🎯 **ALL EMERGENCY UNITS DISPATCHED!**")
+                    st.markdown("""
+                    <div style="background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); 
+                                color: white; padding: 15px; border-radius: 8px; text-align: center;
+                                animation: slideIn 0.5s ease-out;">
+                        <h4 style="margin: 0;">🚨 FULL EMERGENCY RESPONSE ACTIVATED</h4>
+                        <p style="margin: 8px 0 0 0;">EMS • Fire • Police • Command Center</p>
+                        <small>Multi-unit response coordinated</small>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    # Triple balloons for maximum impact!
+                    st.balloons()
+                    st.balloons()
+                    st.balloons()
+                    st.markdown("📢 **EMERGENCY BROADCAST ACTIVATED**")
+                    st.markdown("🔊 *Multi-unit dispatch alert*")
+            
+            with col_multi2:
+                if st.button("🚁 **REQUEST AIR SUPPORT**", use_container_width=True, 
+                           key=f"air_{call_id}"):
+                    st.success("🎯 **AIR SUPPORT REQUESTED!**")
+                    st.markdown("""
+                    <div style="background: #8b5cf6; color: white; padding: 10px; border-radius: 6px; 
+                               text-align: center; animation: slideIn 0.5s ease-out;">
+                        <strong>🚁 Helicopter Dispatched</strong><br>
+                        <small>ETA: 15-20 minutes</small>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    st.balloons()
+        
+        # Status tracking
+        st.markdown("---")
+        st.markdown("### 📊 **DISPATCH STATUS**")
+        
+        # Simulated real-time status updates
+        status_placeholder = st.empty()
+        
+        # Use current time to show "live" status
+        current_time = datetime.datetime.now().strftime("%H:%M:%S")
+        
+        status_placeholder.markdown(f"""
+        <div style="background: #f0f9ff; padding: 12px; border-radius: 6px; border-left: 4px solid #3b82f6;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <strong>🟢 Dispatch Center Active</strong><br>
+                    <small>Units ready for deployment • Last updated: {current_time}</small>
+                </div>
+                <div style="font-size: 24px;">📡</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+                
+    except Exception as e:
+        logger.error(f"Error displaying results: {e}")
+        st.error("Error displaying analysis results. Please try again.")
 
 # ===================================
 # MAIN TABS
@@ -1465,58 +1238,65 @@ def show_help_tab():
 
 def show_emergency_response_tab():
     """Main emergency response interface"""
-    st.markdown("### 🎙️ Emergency Call Input")
+    col_main, col_status = st.columns([2, 1])
     
-    # Input method selection
-    input_method = st.radio(
-        "Select input method:",
-        ["🎤 Record Audio", "📁 Upload File", "⌨️ Manual Entry"],
-        horizontal=True
-    )
-    
-    transcript = None
-    audio_data = None
-    
-    if input_method == "🎤 Record Audio":
-        st.markdown("**Record emergency call audio:**")
-        try:
-            recorded_audio = st.audio_input("Click to record")
-            if recorded_audio:
-                audio_data = recorded_audio
-                st.success("✅ Audio recorded!")
-                st.audio(recorded_audio)
-        except AttributeError:
-            st.info("⚠️ Audio recording requires Streamlit 1.31.0+")
-    
-    elif input_method == "📁 Upload File":
-        uploaded_file = st.file_uploader(
-            "Upload emergency call audio",
-            type=['wav', 'mp3', 'm4a', 'ogg'],
-            help="Supported formats: WAV, MP3, M4A, OGG"
+    with col_main:
+        st.markdown("### 🎙️ Emergency Call Input")
+        
+        # Input method selection
+        input_method = st.radio(
+            "Select input method:",
+            ["🎤 Record Audio", "📁 Upload File", "⌨️ Manual Entry"],
+            horizontal=True
         )
-        if uploaded_file:
-            audio_data = uploaded_file
-            st.success(f"✅ File uploaded: {uploaded_file.name}")
-            st.audio(uploaded_file)
-    
-    else:  # Manual entry
-        transcript = st.text_area(
-            "Enter emergency call transcript:",
-            height=150,
-            placeholder="Help! There's been a serious accident...",
-            help="Type or paste the emergency call transcript"
+        
+        transcript = None
+        audio_data = None
+        
+        if input_method == "🎤 Record Audio":
+            st.markdown("**Record emergency call audio:**")
+            try:
+                recorded_audio = st.audio_input("Click to record")
+                if recorded_audio:
+                    audio_data = recorded_audio
+                    st.success("✅ Audio recorded!")
+                    st.audio(recorded_audio)
+            except AttributeError:
+                st.info("⚠️ Audio recording requires Streamlit 1.31.0+")
+        
+        elif input_method == "📁 Upload File":
+            uploaded_file = st.file_uploader(
+                "Upload emergency call audio",
+                type=['wav', 'mp3', 'm4a', 'ogg'],
+                help="Supported formats: WAV, MP3, M4A, OGG"
+            )
+            if uploaded_file:
+                audio_data = uploaded_file
+                st.success(f"✅ File uploaded: {uploaded_file.name}")
+                st.audio(uploaded_file)
+        
+        else:  # Manual entry
+            transcript = st.text_area(
+                "Enter emergency call transcript:",
+                height=150,
+                placeholder="Help! There's been a serious accident...",
+                help="Type or paste the emergency call transcript"
+            )
+        
+        # Location input
+        st.markdown("### 📍 Location Information")
+        location_input = st.text_input(
+            "Emergency location:",
+            value=st.session_state.current_location,
+            placeholder="123 Main Street, Toronto, ON"
         )
+        
+        # Process button
+        if st.button("🚨 PROCESS EMERGENCY CALL", type="primary", use_container_width=True):
+            process_emergency_call(audio_data, transcript, location_input)
     
-    # Enhanced location section
-    location_input = show_enhanced_location_section()
-    
-    # Process button
-    if st.button("🚨 PROCESS EMERGENCY CALL", type="primary", use_container_width=True):
-        process_emergency_call(audio_data, transcript, location_input)
-    
-    # Show analysis results if available
-    if st.session_state.show_results and st.session_state.analysis_result:
-        show_enhanced_analysis_results()
+    with col_status:
+        show_system_status()
 
 def process_emergency_call(audio_data, manual_transcript: str, location: str):
     """Process emergency call"""
@@ -1552,19 +1332,16 @@ def process_emergency_call(audio_data, manual_transcript: str, location: str):
         
         try:
             analysis = classifier.analyze_emergency(transcript)
+            logger.info(f"Analysis result type: {type(analysis)}")
+            logger.info(f"Analysis keys: {analysis.keys() if isinstance(analysis, dict) else 'Not a dict'}")
             
-            # Add location if provided - FIXED to ensure it's always a dict
-            if location and location.strip():
+            # Add location if provided
+            if location:
                 analysis['location'] = {
                     "address": location,
                     "confidence": 1.0,
                     "source": 'manual'
                 }
-            else:
-                # Check if location was extracted from transcript
-                extracted_location = analysis.get('extracted_info', {}).get('primary_location')
-                if extracted_location:
-                    analysis['location'] = extracted_location
             
             processing_time = time.time() - start_time
             
@@ -1587,12 +1364,18 @@ def process_emergency_call(audio_data, manual_transcript: str, location: str):
             
             st.success(f"✅ Analysis completed in {processing_time:.2f} seconds")
             
+            # Debug: Show what we stored
+            st.info(f"Debug: Stored analysis type: {type(st.session_state.analysis_result)}")
+            st.info(f"Debug: Emergency type: {analysis.get('emergency_type', 'NOT FOUND')}")
+            
             # Force rerun to show results
             st.rerun()
             
         except Exception as e:
             logger.error(f"Error in analysis: {e}")
             st.error(f"Analysis failed: {e}")
+            import traceback
+            st.code(traceback.format_exc())
 
 def show_analytics_dashboard():
     """Analytics and insights dashboard"""
@@ -1607,18 +1390,8 @@ def show_analytics_dashboard():
     
     # Key metrics
     total_calls = len(calls)
-    
-    # Safe calculation for today's calls
-    today_calls = 0
-    for c in calls:
-        try:
-            timestamp = c.get('timestamp', '')
-            if timestamp:
-                dt = datetime.datetime.fromisoformat(timestamp)
-                if dt.date() == datetime.date.today():
-                    today_calls += 1
-        except:
-            continue
+    today_calls = len([c for c in calls if 
+                      datetime.datetime.fromisoformat(c.get('timestamp', '')).date() == datetime.date.today()])
     
     # Time-based analysis
     st.markdown("#### 📅 Call Volume Analysis")
@@ -1786,7 +1559,7 @@ def show_system_status_tab():
         </div>
         """, unsafe_allow_html=True)
     
-    # Service status section
+    # Service status
     st.markdown("#### 🔧 Service Status")
     
     # Check service statuses
@@ -1805,84 +1578,184 @@ def show_system_status_tab():
     else:
         azure_status = ("🔴", "Not Configured", "Using simulated transcription")
     
-    # Add AI status check
-    ai_status = ("🟢", "Active", "AI model loaded") if ai_classifier else ("🔴", "Not Loaded", "AI model not available")
-    
-    # Check geolocation status
-    if GEOLOCATION_AVAILABLE:
-        geo_status = ("🟢", "Available", "GPS location detection ready")
-    else:
-        geo_status = ("🟡", "Not Installed", "Install: pip install streamlit-geolocation")
-    
     services = [
         ("Azure Speech Services", azure_status),
         ("Emergency Classifier", ("🟢", "Active", "Enhanced keyword matching operational")),
-        ("AI Classification", ai_status),
         ("Data Storage", ("🟢", "Online", "Local file system storage")),
         ("Location Extraction", ("🟢", "Active", "Pattern-based extraction")),
-        ("GPS Geolocation", geo_status),
     ]
     
-    # Display services in a grid
-    service_cols = st.columns(2)
-    
-    for i, (service_name, (indicator, status, description)) in enumerate(services):
-        with service_cols[i % 2]:
-            st.markdown(f"""
-            <div style="background: white; padding: 15px; border-radius: 8px; 
-                       margin: 10px 0; border: 1px solid #e5e7eb;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <h4 style="margin: 0; color: #374151;">{service_name}</h4>
-                        <p style="margin: 5px 0 0 0; color: #6b7280; font-size: 14px;">{description}</p>
-                    </div>
-                    <div style="text-align: right;">
-                        <div style="font-size: 20px;">{indicator}</div>
-                        <div style="font-size: 12px; color: #6b7280;">{status}</div>
-                    </div>
+    for service_name, (indicator, status, description) in services:
+        st.markdown(f"""
+        <div style="background: white; padding: 15px; border-radius: 8px; 
+                   margin: 10px 0; border: 1px solid #e5e7eb;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h4 style="margin: 0; color: #374151;">{service_name}</h4>
+                    <p style="margin: 5px 0 0 0; color: #6b7280; font-size: 14px;">{description}</p>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 20px;">{indicator}</div>
+                    <div style="font-size: 12px; color: #6b7280;">{status}</div>
                 </div>
             </div>
-            """, unsafe_allow_html=True)
+        </div>
+        """, unsafe_allow_html=True)
+
+def show_help_tab():
+    """Help and training guide"""
+    st.markdown("### 📚 Help & Training Guide")
     
-    # Configuration info
-    st.markdown("#### ⚙️ Configuration Details")
+    # Quick start guide
+    with st.expander("🚀 Quick Start Guide", expanded=True):
+        st.markdown("""
+        **Getting Started in 3 Steps:**
+        
+        1. **Input Emergency Call**
+           - 🎤 Record audio directly (requires Streamlit 1.31.0+)
+           - 📁 Upload audio file (WAV, MP3, M4A, OGG)
+           - ⌨️ Type/paste transcript manually
+        
+        2. **Add Location Information**  
+           - Enter address manually
+           - System recognizes common address patterns
+        
+        3. **Process & Respond**
+           - Click "🚨 PROCESS EMERGENCY CALL"
+           - Review analysis results in sidebar
+           - Follow recommended actions checklist
+           - Dispatch appropriate units
+        """)
     
-    config_col1, config_col2 = st.columns(2)
+    # Classification guide
+    with st.expander("📋 Emergency Classification Guide"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("""
+            **Emergency Types:**
+            
+            **🏥 Medical Emergencies**
+            - Breathing problems, chest pain
+            - Unconsciousness, seizures
+            - Severe injuries, bleeding
+            - Heart attack, stroke symptoms
+            
+            **🔥 Fire Emergencies**
+            - Structure fires, explosions
+            - Gas leaks, electrical fires
+            - Smoke reports, fire alarms
+            
+            **👮 Police Emergencies**
+            - Crimes in progress
+            - Weapons involved
+            - Break-ins, robberies
+            - Threatening situations
+            
+            **🚗 Traffic Emergencies**
+            - Vehicle accidents
+            - Injuries from crashes
+            - Hit and run incidents
+            """)
+        
+        with col2:
+            st.markdown("""
+            **Severity Levels:**
+            
+            **🔴 Critical**
+            - Life-threatening situations
+            - Immediate response required
+            - Examples: Cardiac arrest, building fire
+            
+            **🟠 High Priority**
+            - Urgent response needed
+            - Examples: Injuries, small fires
+            
+            **🟡 Medium Priority**
+            - Standard response time
+            - Examples: Minor injuries
+            
+            **🟢 Low Priority**
+            - Non-urgent response
+            - Examples: Reports, disputes
+            """)
     
-    with config_col1:
-        st.markdown("##### 🎤 Audio Processing")
-        st.code(f"""
-Azure Region: {AZURE_SPEECH_REGION}
-Language: en-CA
-Max Audio: 10MB
-Formats: WAV, MP3, M4A, OGG
-        """, language="text")
+    # System information
+    st.markdown("### ℹ️ System Information")
     
-    with config_col2:
-        st.markdown("##### 🧠 AI Model")
-        st.code(f"""
-Model: facebook/bart-large-mnli
-Type: Zero-shot classification
-Device: CPU
-Confidence Threshold: 70%
-        """, language="text")
+    col1, col2 = st.columns(2)
     
-    # System logs
-    st.markdown("#### 📊 System Activity")
+    with col1:
+        st.markdown("""
+        **Version:** 2.0 Enhanced
+        **Classification:** Advanced Keyword Matching
+        **Location:** Pattern-based extraction
+        **Last Updated:** 2024
+        """)
     
-    activity_data = {
-        "Time": ["14:32:15", "14:31:42", "14:30:58", "14:29:33", "14:28:15"],
-        "Event": [
-            "Emergency call processed - Medical",
-            "AI classification completed",
-            "Location detected via GPS",
-            "Audio transcription successful",
-            "System health check passed"
-        ],
-        "Status": ["✅", "✅", "✅", "✅", "✅"]
-    }
+    with col2:
+        st.markdown("""
+        **Features:**
+        - 100+ emergency keywords
+        - Severity detection
+        - Location extraction
+        - Confidence scoring
+        - Azure Speech support
+        """)
     
-    st.dataframe(activity_data, use_container_width=True, hide_index=True)
+    # Emergency contacts
+    st.markdown("---")
+    st.markdown("""
+    ### 📞 Emergency Contacts
+    
+    **For Real Emergencies: CALL 911**
+    
+    This is a training and demonstration system only.
+    Always follow your organization's emergency response protocols.
+    """)
+    """Call history display"""
+    st.markdown("### 📁 Emergency Call History")
+    
+    calls = load_call_history()
+    
+    if not calls:
+        st.info("📋 No call history available.")
+        return
+    
+    st.markdown(f"**Total calls: {len(calls)}**")
+    
+    for i, call in enumerate(calls[:10]):  # Show last 10 calls
+        try:
+            timestamp = call.get('timestamp', '')
+            if timestamp:
+                try:
+                    dt = datetime.datetime.fromisoformat(timestamp)
+                    time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+                except:
+                    time_str = timestamp
+            else:
+                time_str = "Unknown time"
+            
+            severity = call.get('severity', 'Unknown')
+            emergency_type = call.get('emergency_type', 'Unknown')
+            confidence = call.get('confidence', 0)
+            
+            severity_emojis = {"Critical": "🔴", "High": "🟠", "Medium": "🟡", "Low": "🟢"}
+            
+            with st.expander(f"{severity_emojis.get(severity, '⚪')} {emergency_type} - {time_str}"):
+                transcript = call.get('transcript', 'No transcript')
+                st.markdown(f"**Transcript:** {transcript}")
+                
+                location = call.get('location', {})
+                if isinstance(location, dict) and location.get('address', 'Unknown') != 'Unknown':
+                    st.markdown(f"**Location:** {location['address']}")
+                
+                st.markdown(f"**Severity:** {severity}")
+                st.markdown(f"**Confidence:** {confidence:.0%}" if isinstance(confidence, (int, float)) else "N/A")
+                
+        except Exception as e:
+            logger.error(f"Error displaying call {i}: {e}")
+            continue
 
 # ===================================
 # MAIN APPLICATION
@@ -1897,7 +1770,7 @@ def main():
         st.markdown("""
         <div style="text-align: center; margin-bottom: 30px;">
             <h1 style="color: #1f2937;">🚨 AI911 Emergency Call System</h1>
-            <p style="color: #6b7280; font-size: 18px;">Advanced Emergency Classification & Response Platform with AI</p>
+            <p style="color: #6b7280; font-size: 18px;">Advanced Emergency Classification & Response Platform</p>
         </div>
         """, unsafe_allow_html=True)
         
