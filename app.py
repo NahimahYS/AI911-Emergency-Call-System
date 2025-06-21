@@ -190,7 +190,7 @@ def show_enhanced_location_section():
         with st.spinner("🔍 Detecting your location... (Please allow location access if prompted)"):
             try:
                 # Get location using streamlit-geolocation
-                location_data = streamlit_geolocation(key="geolocation")
+                location_data = streamlit_geolocation()
                 
                 if location_data and location_data['latitude'] is not None:
                     lat = location_data['latitude']
