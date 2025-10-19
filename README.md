@@ -44,14 +44,14 @@ This project challenged us to step out of our comfort zones:
 ## 🎥 Demo & Screenshots
 
 ### System Demonstration Video
-[📹 Watch Full Demo Video](link-to-your-video)
+https://youtu.be/UapfhGYWHXs
 
 > **Note:** The live deployment link requires active Azure API credentials. The demo video and screenshots below showcase the complete system functionality.
 
 ### Application Screenshots
 
 #### 🏠 Main Dashboard
-![Dashboard](screenshots/dashboard.png)
+
 *Emergency call input interface with audio recorder, file upload, and manual entry options*
 
 #### 🎯 Classification Results
